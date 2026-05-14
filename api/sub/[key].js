@@ -15,29 +15,12 @@ export default async function handler(req, res) {
     uaLower.includes("v2ray") ||
     uaLower.includes("v2rayng") ||
     uaLower.includes("v2raytun") ||
-    uaLower.includes("v2box");
+    uaLower.includes("v2box") ||
+    uaLower.includes("sing-box") ||
+    uaLower.includes("streisand") ||
+    uaLower.includes("foxray");
 
   const isBrowser = accept.includes("text/html") && !isApp;
-
-  if (isBrowser) {
-    const username = decodeNameFromKey(key) || "Benjamin SERVERS User";
-    let usage = parseUserInfo(null);
-
-    try {
-      const infoReq = await fetch(target, {
-        redirect: "follow",
-        headers: {
-          "User-Agent": ua || "Mozilla/5.0",
-          "Accept": "*/*"
-        }
-      });
-
-      usage = parseUserInfo(infoReq.headers.get("subscription-userinfo"));
-    } catch {}
-
-    res.setHeader("Content-Type", "text/html; charset=utf-8");
-    return res.status(200).send(getHtml(username, subUrl, usage));
-  }
 
   try {
     const r = await fetch(target, {
@@ -49,6 +32,20 @@ export default async function handler(req, res) {
     });
 
     const text = await r.text();
+    const userInfo = r.headers.get("subscription-userinfo");
+
+    if (isBrowser) {
+      const username =
+        getNameFromSubscription(text) ||
+        getNameFromHeader(r.headers.get("profile-title")) ||
+        "Premium User";
+
+      const usage = parseUserInfo(userInfo);
+
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+      return res.status(200).send(getHtml(username, subUrl, usage));
+    }
 
     res.setHeader("Content-Type", "text/plain; charset=utf-8");
     res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
@@ -56,20 +53,64 @@ export default async function handler(req, res) {
     res.setHeader("profile-update-interval", "6");
     res.setHeader("profile-title", "Benjamin SERVERS");
 
-    const userInfo = r.headers.get("subscription-userinfo");
     if (userInfo) res.setHeader("subscription-userinfo", userInfo);
 
     return res.status(r.status).send(text);
-  } catch {
-    return res.status(500).send("proxy error");
+  } catch (e) {
+    return res.status(500).send("proxy error: " + e.message);
   }
 }
 
-function decodeNameFromKey(key) {
+function getNameFromHeader(v) {
+  if (!v) return null;
+
   try {
-    const clean = key.replace(/-/g, "+").replace(/_/g, "/");
-    const decoded = Buffer.from(clean, "base64").toString("utf8");
-    return decoded.split(",")[0]?.trim() || null;
+    const s = decodeURIComponent(v).trim();
+    if (!s) return null;
+
+    const bad = ["v1", "v2", "v3", "v4", "premium", "server", "servers"];
+    if (bad.includes(s.toLowerCase())) return null;
+
+    return s;
+  } catch {
+    return null;
+  }
+}
+
+function getNameFromSubscription(text) {
+  try {
+    let decoded = text.trim();
+
+    if (!decoded.includes("://")) {
+      decoded = Buffer.from(decoded, "base64").toString("utf8");
+    }
+
+    const lines = decoded.split(/\r?\n/).filter(Boolean);
+
+    for (const line of lines) {
+      const hash = line.split("#")[1];
+      if (!hash) continue;
+
+      let name = decodeURIComponent(hash).trim();
+
+      name = name
+        .replace(/🇺🇸|🇩🇪|🇳🇱|🇫🇷|🇬🇧|🇹🇷|🇷🇺|🇸🇬|🇯🇵|🇰🇿/g, "")
+        .replace(/server/gi, "")
+        .replace(/premium/gi, "")
+        .replace(/vless/gi, "")
+        .replace(/vmess/gi, "")
+        .replace(/trojan/gi, "")
+        .replace(/shadowsocks/gi, "")
+        .replace(/ss/gi, "")
+        .replace(/[|•_-]+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+
+      const bad = ["v1", "v2", "v3", "v4", "vpn", "user"];
+      if (name && !bad.includes(name.toLowerCase())) return name;
+    }
+
+    return null;
   } catch {
     return null;
   }
@@ -110,8 +151,10 @@ function parseUserInfo(userInfo) {
 
 function formatBytes(bytes) {
   if (!bytes || bytes <= 0) return "0 MB";
+
   const gb = bytes / 1024 / 1024 / 1024;
   if (gb >= 1) return gb.toFixed(2) + " GB";
+
   const mb = bytes / 1024 / 1024;
   return mb.toFixed(1) + " MB";
 }
@@ -124,12 +167,22 @@ function formatExpireParts(timestamp) {
   const diff = expireMs - now;
   const date = new Date(expireMs).toLocaleDateString("ru-RU");
 
-  if (diff <= 0) return { daysLeft: "expired", hoursLeft: "0", expireDate: date };
+  if (diff <= 0) {
+    return {
+      daysLeft: "expired",
+      hoursLeft: "0",
+      expireDate: date
+    };
+  }
 
   const days = Math.floor(diff / (1000 * 60 * 60 * 24));
   const hours = Math.floor((diff / (1000 * 60 * 60)) % 24);
 
-  return { daysLeft: String(days), hoursLeft: String(hours), expireDate: date };
+  return {
+    daysLeft: String(days),
+    hoursLeft: String(hours),
+    expireDate: date
+  };
 }
 
 function escapeHtml(str) {
@@ -152,6 +205,7 @@ function getHtml(username, subUrl, usage) {
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Benjamin SERVERS</title>
+
 <style>
 *{box-sizing:border-box}
 body{
@@ -229,28 +283,7 @@ body{
   box-shadow:0 25px 80px rgba(0,0,0,.50);
   backdrop-filter:blur(9px);
 }
-.card:before{
-  content:"VPN FAST SECURE PREMIUM VPN FAST SECURE PREMIUM";
-  position:absolute;
-  top:40%;
-  left:-40%;
-  width:180%;
-  color:rgba(255,255,255,.055);
-  font-size:46px;
-  font-weight:900;
-  letter-spacing:8px;
-  white-space:nowrap;
-  transform:rotate(-18deg);
-  animation:cardText 18s linear infinite;
-  pointer-events:none;
-}
-@keyframes cardText{
-  from{transform:translateX(-10%) rotate(-18deg)}
-  to{transform:translateX(25%) rotate(-18deg)}
-}
 .logo{
-  position:relative;
-  z-index:1;
   width:86px;height:86px;
   border-radius:28px;
   margin:0 auto 16px;
@@ -260,7 +293,6 @@ body{
   font-weight:900;
   box-shadow:0 0 35px rgba(168,85,247,.65);
 }
-h1,.desc,.userBox,.usageBox,.sectionTitle,.app,.qrBtn,.qrBox{position:relative;z-index:1}
 h1{text-align:center;margin:0 0 8px;font-size:32px}
 .desc{text-align:center;color:#d6def5;line-height:1.55;margin-bottom:22px}
 .userBox,.usageBox{
@@ -293,7 +325,6 @@ h1{text-align:center;margin:0 0 8px;font-size:32px}
   height:100%;
   background:linear-gradient(90deg,#22c55e,#3b82f6,#a855f7);
   border-radius:999px;
-  box-shadow:0 0 20px rgba(59,130,246,.8);
 }
 .sectionTitle{font-size:20px;font-weight:900;margin:22px 0 12px}
 .app{
@@ -356,6 +387,7 @@ h1{text-align:center;margin:0 0 8px;font-size:32px}
 }
 </style>
 </head>
+
 <body>
 <div class="bgText">
   <span>VPN • FAST • SECURE • Benjamin</span>
@@ -375,7 +407,10 @@ h1{text-align:center;margin:0 0 8px;font-size:32px}
   <div class="card">
     <div class="logo">U</div>
     <h1>Benjamin SERVERS</h1>
-    <div class="desc" id="mainDesc">Subscription linkiňizi aşakdaky programmalara bir basyş bilen goşuň.</div>
+
+    <div class="desc" id="mainDesc">
+      Subscription linkiňizi aşakdaky programmalara bir basyş bilen goşuň.
+    </div>
 
     <div class="userBox">
       <div class="userLabel" id="userLabel">Ulanyjy ady</div>
@@ -388,7 +423,11 @@ h1{text-align:center;margin:0 0 8px;font-size:32px}
         <span id="usedLabel">Ulanylan</span>
         <b>${usage.usedText} / ${usage.totalText}</b>
       </div>
-      <div class="bar"><div class="barFill" style="width:${usage.percent}%"></div></div>
+
+      <div class="bar">
+        <div class="barFill" style="width:${usage.percent}%"></div>
+      </div>
+
       <div class="usageBottom">
         <span>${usage.percent}%</span>
         <span><span id="expireLabel">Gutarýan möhleti</span>: <span id="expireValue"></span></span>
@@ -397,13 +436,53 @@ h1{text-align:center;margin:0 0 8px;font-size:32px}
 
     <div class="sectionTitle" id="appsTitle">Programma saýlaň</div>
 
-    <button class="app hiddify" onclick="openHiddify()"><div class="icon">H</div><div class="txt"><div class="title" id="hiddifyTitle">Hiddify'a Goş</div><div class="sub" id="hiddifySub">Hiddify programmasynda aç</div></div><div class="arrow">›</div></button>
-    <button class="app v2raytun" onclick="openV2RayTun()"><div class="icon">V2</div><div class="txt"><div class="title" id="v2raytunTitle">v2RayTun'a Goş</div><div class="sub" id="v2raytunSub">v2RayTun programmasynda aç</div></div><div class="arrow">›</div></button>
-    <button class="app v2rayng" onclick="openV2RayNG()"><div class="icon">V</div><div class="txt"><div class="title" id="v2rayngTitle">v2RayNG'ye Goş</div><div class="sub" id="v2rayngSub">v2RayNG programmasynda aç</div></div><div class="arrow">›</div></button>
-    <button class="app v2box" onclick="openV2Box()"><div class="icon">V²</div><div class="txt"><div class="title" id="v2boxTitle">V2Box'a Goş</div><div class="sub" id="v2boxSub">V2Box programmasynda aç</div></div><div class="arrow">›</div></button>
-    <button class="app happ" onclick="openHapp()"><div class="icon">H</div><div class="txt"><div class="title" id="happTitle">Happ'a Goş</div><div class="sub" id="happSub">Happ programmasynda aç</div></div><div class="arrow">›</div></button>
+    <button class="app hiddify" onclick="openHiddify()">
+      <div class="icon">H</div>
+      <div class="txt">
+        <div class="title" id="hiddifyTitle">Hiddify'a Goş</div>
+        <div class="sub" id="hiddifySub">Hiddify programmasynda aç</div>
+      </div>
+      <div class="arrow">›</div>
+    </button>
+
+    <button class="app v2raytun" onclick="openV2RayTun()">
+      <div class="icon">V2</div>
+      <div class="txt">
+        <div class="title" id="v2raytunTitle">v2RayTun'a Goş</div>
+        <div class="sub" id="v2raytunSub">v2RayTun programmasynda aç</div>
+      </div>
+      <div class="arrow">›</div>
+    </button>
+
+    <button class="app v2rayng" onclick="openV2RayNG()">
+      <div class="icon">V</div>
+      <div class="txt">
+        <div class="title" id="v2rayngTitle">v2RayNG'ye Goş</div>
+        <div class="sub" id="v2rayngSub">v2RayNG programmasynda aç</div>
+      </div>
+      <div class="arrow">›</div>
+    </button>
+
+    <button class="app v2box" onclick="openV2Box()">
+      <div class="icon">V²</div>
+      <div class="txt">
+        <div class="title" id="v2boxTitle">V2Box'a Goş</div>
+        <div class="sub" id="v2boxSub">V2Box programmasynda aç</div>
+      </div>
+      <div class="arrow">›</div>
+    </button>
+
+    <button class="app happ" onclick="openHapp()">
+      <div class="icon">H</div>
+      <div class="txt">
+        <div class="title" id="happTitle">Happ'a Goş</div>
+        <div class="sub" id="happSub">Happ programmasynda aç</div>
+      </div>
+      <div class="arrow">›</div>
+    </button>
 
     <button class="qrBtn" onclick="toggleQr()" id="qrBtn">QR kod görkez</button>
+
     <div class="qrBox" id="qrBox">
       <img src="https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encUrl}" alt="QR Code">
       <div class="qrText">${safeUrl}</div>
@@ -421,32 +500,103 @@ const hoursLeft = "${usage.hoursLeft}";
 const expireDate = "${usage.expireDate}";
 
 const texts = {
-  tk:{mainDesc:"Subscription linkiňizi aşakdaky programmalara bir basyş bilen goşuň.",userLabel:"Ulanyjy ady",copyHint:"Adyň üstüne basyň — göçüriler",usedLabel:"Ulanylan",expireLabel:"Gutarýan möhleti",appsTitle:"Programma saýlaň",hiddifyTitle:"Hiddify'a Goş",hiddifySub:"Hiddify programmasynda aç",v2raytunTitle:"v2RayTun'a Goş",v2raytunSub:"v2RayTun programmasynda aç",v2rayngTitle:"v2RayNG'ye Goş",v2rayngSub:"v2RayNG programmasynda aç",v2boxTitle:"V2Box'a Goş",v2boxSub:"V2Box programmasynda aç",happTitle:"Happ'a Goş",happSub:"Happ programmasynda aç",qrBtn:"QR kod görkez",copied:"Ulanyjy ady göçürildi",expired:"Gutardy ❌",day:"gün galdy",hour:"sagat galdy"},
-  tr:{mainDesc:"Subscription linkinizi aşağıdaki uygulamalara tek dokunuşla ekleyin.",userLabel:"Kullanıcı adı",copyHint:"İsme basın — kopyalanır",usedLabel:"Kullanılan",expireLabel:"Bitiş süresi",appsTitle:"Uygulama seçin",hiddifyTitle:"Hiddify'a Ekle",hiddifySub:"Hiddify uygulamasında aç",v2raytunTitle:"v2RayTun'a Ekle",v2raytunSub:"v2RayTun uygulamasında aç",v2rayngTitle:"v2RayNG'ye Ekle",v2rayngSub:"v2RayNG uygulamasında aç",v2boxTitle:"V2Box'a Ekle",v2boxSub:"V2Box uygulamasında aç",happTitle:"Happ'a Ekle",happSub:"Happ uygulamasında aç",qrBtn:"QR kodu göster",copied:"Kullanıcı adı kopyalandı",expired:"Süresi bitti ❌",day:"gün kaldı",hour:"saat kaldı"},
-  ru:{mainDesc:"Добавьте subscription ссылку в приложение одним нажатием.",userLabel:"Имя пользователя",copyHint:"Нажмите на имя — скопируется",usedLabel:"Использовано",expireLabel:"Осталось",appsTitle:"Выберите приложение",hiddifyTitle:"Добавить в Hiddify",hiddifySub:"Открыть в Hiddify",v2raytunTitle:"Добавить в v2RayTun",v2raytunSub:"Открыть в v2RayTun",v2rayngTitle:"Добавить в v2RayNG",v2rayngSub:"Открыть в v2RayNG",v2boxTitle:"Добавить в V2Box",v2boxSub:"Открыть в V2Box",happTitle:"Добавить в Happ",happSub:"Открыть в Happ",qrBtn:"Показать QR-код",copied:"Имя пользователя скопировано",expired:"Истекло ❌",day:"дней осталось",hour:"часов осталось"}
+  tk:{
+    mainDesc:"Subscription linkiňizi aşakdaky programmalara bir basyş bilen goşuň.",
+    userLabel:"Ulanyjy ady",
+    copyHint:"Adyň üstüne basyň — göçüriler",
+    usedLabel:"Ulanylan",
+    expireLabel:"Gutarýan möhleti",
+    appsTitle:"Programma saýlaň",
+    hiddifyTitle:"Hiddify'a Goş",
+    hiddifySub:"Hiddify programmasynda aç",
+    v2raytunTitle:"v2RayTun'a Goş",
+    v2raytunSub:"v2RayTun programmasynda aç",
+    v2rayngTitle:"v2RayNG'ye Goş",
+    v2rayngSub:"v2RayNG programmasynda aç",
+    v2boxTitle:"V2Box'a Goş",
+    v2boxSub:"V2Box programmasynda aç",
+    happTitle:"Happ'a Goş",
+    happSub:"Happ programmasynda aç",
+    qrBtn:"QR kod görkez",
+    copied:"Ulanyjy ady göçürildi",
+    expired:"Gutardy ❌",
+    day:"gün galdy",
+    hour:"sagat galdy"
+  },
+  tr:{
+    mainDesc:"Subscription linkinizi aşağıdaki uygulamalara tek dokunuşla ekleyin.",
+    userLabel:"Kullanıcı adı",
+    copyHint:"İsme basın — kopyalanır",
+    usedLabel:"Kullanılan",
+    expireLabel:"Bitiş süresi",
+    appsTitle:"Uygulama seçin",
+    hiddifyTitle:"Hiddify'a Ekle",
+    hiddifySub:"Hiddify uygulamasında aç",
+    v2raytunTitle:"v2RayTun'a Ekle",
+    v2raytunSub:"v2RayTun uygulamasında aç",
+    v2rayngTitle:"v2RayNG'ye Ekle",
+    v2rayngSub:"v2RayNG uygulamasında aç",
+    v2boxTitle:"V2Box'a Ekle",
+    v2boxSub:"V2Box uygulamasında aç",
+    happTitle:"Happ'a Ekle",
+    happSub:"Happ uygulamasında aç",
+    qrBtn:"QR kodu göster",
+    copied:"Kullanıcı adı kopyalandı",
+    expired:"Süresi bitti ❌",
+    day:"gün kaldı",
+    hour:"saat kaldı"
+  },
+  ru:{
+    mainDesc:"Добавьте subscription ссылку в приложение одним нажатием.",
+    userLabel:"Имя пользователя",
+    copyHint:"Нажмите на имя — скопируется",
+    usedLabel:"Использовано",
+    expireLabel:"Осталось",
+    appsTitle:"Выберите приложение",
+    hiddifyTitle:"Добавить в Hiddify",
+    hiddifySub:"Открыть в Hiddify",
+    v2raytunTitle:"Добавить в v2RayTun",
+    v2raytunSub:"Открыть в v2RayTun",
+    v2rayngTitle:"Добавить в v2RayNG",
+    v2rayngSub:"Открыть в v2RayNG",
+    v2boxTitle:"Добавить в V2Box",
+    v2boxSub:"Открыть в V2Box",
+    happTitle:"Добавить в Happ",
+    happSub:"Открыть в Happ",
+    qrBtn:"Показать QR-код",
+    copied:"Имя пользователя скопировано",
+    expired:"Истекло ❌",
+    day:"дней осталось",
+    hour:"часов осталось"
+  }
 };
 
 let lang = localStorage.getItem("lang") || "tk";
 
 function makeExpireText(){
   const t = texts[lang];
+
   if (daysLeft === "expired") return t.expired + " · " + expireDate;
   if (daysLeft !== "-" && Number(daysLeft) > 0) return daysLeft + " " + t.day + " · " + expireDate;
   if (hoursLeft !== "-") return hoursLeft + " " + t.hour + " · " + expireDate;
+
   return "-";
 }
 
 function setLang(l){
   lang = l;
   localStorage.setItem("lang", l);
+
   document.querySelectorAll(".langs button").forEach(b=>b.classList.remove("active"));
   document.getElementById(l+"Btn").classList.add("active");
 
   const t = texts[l];
+
   for (const k in t) {
     const el = document.getElementById(k);
     if (el) el.innerText = t[k];
   }
+
   document.getElementById("expireValue").innerText = makeExpireText();
 }
 
@@ -462,11 +612,25 @@ function copyName(){
   showToast(texts[lang].copied);
 }
 
-function openHiddify(){ location.href = "hiddify://import/" + subUrl + "#Benjamin SERVERS"; }
-function openV2RayTun(){ location.href = "v2raytun://import/" + subUrl; }
-function openV2RayNG(){ location.href = "v2rayng://install-sub?url=" + encodeURIComponent(subUrl) + "&name=" + encodeURIComponent("Benjamin SERVERS"); }
-function openV2Box(){ location.href = "v2box://install-config?url=" + encodeURIComponent(subUrl); }
-function openHapp(){ location.href = "happ://add/" + subUrl; }
+function openHiddify(){
+  location.href = "hiddify://import/" + subUrl + "#Benjamin SERVERS";
+}
+
+function openV2RayTun(){
+  location.href = "v2raytun://import/" + subUrl;
+}
+
+function openV2RayNG(){
+  location.href = "v2rayng://install-sub?url=" + encodeURIComponent(subUrl) + "&name=" + encodeURIComponent("Benjamin SERVERS");
+}
+
+function openV2Box(){
+  location.href = "v2box://install-config?url=" + encodeURIComponent(subUrl);
+}
+
+function openHapp(){
+  location.href = "happ://add/" + subUrl;
+}
 
 function toggleQr(){
   const box = document.getElementById("qrBox");
