@@ -2,7 +2,7 @@ export default async function handler(req, res) {
   const { key } = req.query;
   if (!key) return res.status(400).send("missing key");
 
-  const target = `https://pasarguard.lexum.sbs/sub/${encodeURIComponent(key)}`;
+  const target = `https://allas.lexum.sbs/sub/${encodeURIComponent(key)}`;
   const subUrl = `https://cloudesync.sbs/api/sub/${encodeURIComponent(key)}`;
 
   const accept = req.headers.accept || "";
